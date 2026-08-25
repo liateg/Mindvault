@@ -1,11 +1,19 @@
 import Groq from "groq-sdk";
 
 export interface ModelUsage {
-  output: string;
   model: string;
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+}
+
+export interface ModelResult extends ModelUsage {
+  output: string;
+}
+
+export interface ModelStreamChunk {
+  text?: string;
+  usage?: ModelUsage;
 }
 
 export interface ModelPricing {
@@ -14,8 +22,13 @@ export interface ModelPricing {
 }
 
 export interface LanguageModel {
+  name: string;
   pricing: ModelPricing;
-  generate(prompt: string): Promise<ModelUsage>;
+  generate(prompt: string): Promise<ModelResult>;
+  stream(
+    prompt: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<ModelStreamChunk>;
 }
 
 const apiKey = process.env.GROQ_API_KEY;
@@ -48,6 +61,7 @@ const groq = new Groq({
 });
 
 export const model: LanguageModel = {
+  name: modelName,
   pricing,
   async generate(prompt) {
     const completion = await groq.chat.completions.create({
@@ -62,5 +76,37 @@ export const model: LanguageModel = {
       outputTokens: completion.usage?.completion_tokens ?? 0,
       totalTokens: completion.usage?.total_tokens ?? 0,
     };
+  },
+  async *stream(prompt, signal) {
+    const request = {
+      model: modelName,
+      messages: [{ role: "user" as const, content: prompt }],
+      stream: true as const,
+    };
+
+    const groqStream = signal
+      ? await groq.chat.completions.create(request, { signal })
+      : await groq.chat.completions.create(request);
+
+    for await (const chunk of groqStream) {
+      const text = chunk.choices[0]?.delta.content;
+
+      if (text) {
+        yield { text };
+      }
+
+      const usage = chunk.x_groq?.usage;
+
+      if (usage) {
+        yield {
+          usage: {
+            model: chunk.model,
+            inputTokens: usage.prompt_tokens,
+            outputTokens: usage.completion_tokens,
+            totalTokens: usage.total_tokens,
+          },
+        };
+      }
+    }
   },
 };

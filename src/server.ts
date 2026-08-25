@@ -1,5 +1,5 @@
 import express from "express";
-import { generateContent } from "./llm/service.js";
+import { streamContent } from "./llm/service.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -14,23 +14,56 @@ app.post("/ask", async (request, response) => {
     return;
   }
 
+  const abortController = new AbortController();
+
+  request.on("aborted", () => abortController.abort());
+  response.on("close", () => {
+    if (!response.writableEnded) {
+      abortController.abort();
+    }
+  });
+
+  response.status(200).set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  });
+  response.flushHeaders();
+
   try {
-    const output = await generateContent(prompt);
-    response.json({ output });
+    for await (const event of streamContent(
+      prompt,
+      abortController.signal,
+    )) {
+      response.write(
+        `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+      );
+    }
+
+    response.write("event: done\ndata: {}\n\n");
+    response.end();
   } catch (error) {
     console.error(error);
+
+    if (abortController.signal.aborted || response.writableEnded) {
+      return;
+    }
 
     const status =
       typeof (error as { status?: unknown }).status === "number"
         ? (error as { status: number }).status
         : 500;
 
-    response.status(status).json({
-      error:
-        status === 504
-          ? "The AI request timed out. Please try again."
-          : "Failed to generate content",
-    });
+    const message =
+      status === 504
+        ? "The AI request timed out. Please try again."
+        : "Failed to generate content";
+
+    response.write(
+      `event: error\ndata: ${JSON.stringify({ status, error: message })}\n\n`,
+    );
+    response.end();
   }
 });
 
