@@ -15,6 +15,12 @@ app.post("/ask", async (request, response) => {
   }
 
   const abortController = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    abortController.abort();
+  }, 30_000);
+  timeout.unref();
 
   request.on("aborted", () => abortController.abort());
   response.on("close", () => {
@@ -23,7 +29,7 @@ app.post("/ask", async (request, response) => {
     }
   });
 
-  response.status(200).set({
+  response.set({
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
@@ -36,9 +42,11 @@ app.post("/ask", async (request, response) => {
       prompt,
       abortController.signal,
     )) {
+     setInterval(() => {
       response.write(
         `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
       );
+     }, 30_000);
     }
 
     response.write("event: done\ndata: {}\n\n");
@@ -46,12 +54,16 @@ app.post("/ask", async (request, response) => {
   } catch (error) {
     console.error(error);
 
-    if (abortController.signal.aborted || response.writableEnded) {
+    if (
+      (!timedOut && abortController.signal.aborted) ||
+      response.writableEnded
+    ) {
       return;
     }
 
-    const status =
-      typeof (error as { status?: unknown }).status === "number"
+    const status = timedOut
+      ? 504
+      : typeof (error as { status?: unknown }).status === "number"
         ? (error as { status: number }).status
         : 500;
 
@@ -64,6 +76,8 @@ app.post("/ask", async (request, response) => {
       `event: error\ndata: ${JSON.stringify({ status, error: message })}\n\n`,
     );
     response.end();
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
