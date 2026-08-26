@@ -1,12 +1,16 @@
 import express from "express";
 import { streamContent } from "./llm/service.js";
 
+type responseStatus='OK' | 'ERROR' | 'TIMEOUT' | 'ABORTED';
+const max_timeout = 30_000;
+
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
 app.use(express.json());
 
 app.post("/ask", async (request, response) => {
+  let responseStatus: responseStatus = 'ERROR';
   const prompt = request.body?.prompt;
 
   if (typeof prompt !== "string" || !prompt.trim()) {
@@ -19,7 +23,7 @@ app.post("/ask", async (request, response) => {
   const timeout = setTimeout(() => {
     timedOut = true;
     abortController.abort();
-  }, 30_000);
+  }, max_timeout);
   timeout.unref();
 
   request.on("aborted", () => abortController.abort());
@@ -42,42 +46,53 @@ app.post("/ask", async (request, response) => {
       prompt,
       abortController.signal,
     )) {
-     setInterval(() => {
       response.write(
         `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
       );
-     }, 30_000);
     }
 
+  
+
+ 
+  //  if (abortController.signal.aborted) {
+  //   responseStatus = 'ABORTED';
+  //  }
+    responseStatus = 'OK';
+    // console.log('responseStatus', responseStatus);
     response.write("event: done\ndata: {}\n\n");
+    
     response.end();
   } catch (error) {
     console.error(error);
-
+    if (timedOut) {
+      responseStatus = 'TIMEOUT';
+    
+    }
     if (
       (!timedOut && abortController.signal.aborted) ||
       response.writableEnded
     ) {
+      if (abortController.signal.aborted) {
+        responseStatus = 'ABORTED';
+      }
       return;
     }
 
-    const status = timedOut
-      ? 504
-      : typeof (error as { status?: unknown }).status === "number"
-        ? (error as { status: number }).status
-        : 500;
-
+    
     const message =
-      status === 504
+      responseStatus === 'TIMEOUT'
         ? "The AI request timed out. Please try again."
         : "Failed to generate content";
 
+
     response.write(
-      `event: error\ndata: ${JSON.stringify({ status, error: message })}\n\n`,
+      `event: error\ndata: ${JSON.stringify({ message, responseStatus })}\n\n`,
     );
+    
     response.end();
   } finally {
     clearTimeout(timeout);
+    console.log('responseStatus', responseStatus);
   }
 });
 
