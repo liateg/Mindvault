@@ -1,9 +1,47 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mindvault}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mindvault}
+      POSTGRES_DB: ${POSTGRES_DB:-mindvault}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER:-mindvault} -d ${POSTGRES_DB:-mindvault}
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  migrate:
+    build:
+      context: .
+      target: build
+    command: npm run db:migrate
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mindvault}:${POSTGRES_PASSWORD:-mindvault}@postgres:5432/${POSTGRES_DB:-mindvault}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
   app:
     build:
       context: .
     env_file:
       - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mindvault}:${POSTGRES_PASSWORD:-mindvault}@postgres:5432/${POSTGRES_DB:-mindvault}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
     ports:
       - "${PORT:-3000}:${PORT:-3000}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
+
+volumes:
+  postgres_data:

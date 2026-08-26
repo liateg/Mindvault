@@ -1,4 +1,7 @@
 import express from "express";
+import { toNodeHandler } from "better-auth/node";
+import { auth } from "./auth.js";
+import { requireSession } from "./auth-middleware.js";
 import { streamContent } from "./llm/service.js";
 
 type responseStatus='OK' | 'ERROR' | 'TIMEOUT' | 'ABORTED';
@@ -7,9 +10,14 @@ const max_timeout = 30_000;
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 
+app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
 
-app.post("/ask", async (request, response) => {
+app.get("/api/me", requireSession, (_request, response) => {
+  response.json(response.locals.session);
+});
+
+app.post("/ask", requireSession, async (request, response) => {
   let responseStatus: responseStatus = 'ERROR';
   const prompt = request.body?.prompt;
 

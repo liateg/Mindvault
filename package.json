@@ -10,6 +10,8 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -25,14 +27,19 @@
   },
   "homepage": "https://github.com/liateg/Mindvault#readme",
   "dependencies": {
+    "better-auth": "^1.7.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
-    "groq-sdk": "^1.5.0"
+    "groq-sdk": "^1.5.0",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.3.0",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }
