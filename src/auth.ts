@@ -1,8 +1,7 @@
 import "dotenv/config";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { db } from "./db/index.js";
-import * as schema from "./db/schema.js";
+import { db, schema } from "./db/index.js";
 
 const secret = process.env.BETTER_AUTH_SECRET;
 

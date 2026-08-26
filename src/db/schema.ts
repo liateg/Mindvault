@@ -1,107 +1,138 @@
 import { relations } from "drizzle-orm";
 import {
+  index,
+  pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
-  boolean,
-  index,
-  uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
+import { user } from "./auth-schema.js";
 
-export const user = pgTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").default(false).notNull(),
-  image: text("image"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at")
-    .defaultNow()
-    .$onUpdate(() => /* @__PURE__ */ new Date())
-    .notNull(),
-});
+export const projectRole = pgEnum("project_role", [
+  "admin",
+  "maintain",
+  "write",
+  "read",
+]);
 
-export const session = pgTable(
-  "session",
+export const decisionStatus = pgEnum("decision_status", [
+  "proposed",
+  "approved",
+  "rejected",
+  "superseded",
+]);
+
+export const project = pgTable(
+  "project",
   {
-    id: text("id").primaryKey(),
-    expiresAt: timestamp("expires_at").notNull(),
-    token: text("token").notNull().unique(),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
-      .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
-    ipAddress: text("ip_address"),
-    userAgent: text("user_agent"),
-    userId: text("user_id")
+    id: uuid("id").defaultRandom().primaryKey(),
+    title: text("title").notNull(),
+    description: text("description"),
+    ownerUserId: text("owner_user_id")
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-  },
-  (table) => [index("session_userId_idx").on(table.userId)],
-);
-
-export const account = pgTable(
-  "account",
-  {
-    id: text("id").primaryKey(),
-    issuer: text("issuer").notNull(),
-    accountId: text("account_id").notNull(),
-    providerId: text("provider_id").notNull(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    accessToken: text("access_token"),
-    refreshToken: text("refresh_token"),
-    idToken: text("id_token"),
-    accessTokenExpiresAt: timestamp("access_token_expires_at"),
-    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-    scope: text("scope"),
-    password: text("password"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-    updatedAt: timestamp("updated_at")
-      .$onUpdate(() => /* @__PURE__ */ new Date())
-      .notNull(),
-  },
-  (table) => [
-    uniqueIndex("account_issuer_accountId_uidx").on(
-      table.issuer,
-      table.accountId,
-    ),
-    index("account_userId_idx").on(table.userId),
-  ],
-);
-
-export const verification = pgTable(
-  "verification",
-  {
-    id: text("id").primaryKey(),
-    identifier: text("identifier").notNull(),
-    value: text("value").notNull(),
-    expiresAt: timestamp("expires_at").notNull(),
+      .references(() => user.id),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
-      .$onUpdate(() => /* @__PURE__ */ new Date())
+      .$onUpdate(() => new Date())
       .notNull(),
   },
-  (table) => [index("verification_identifier_idx").on(table.identifier)],
+  (table) => [index("project_owner_user_id_idx").on(table.ownerUserId)],
 );
 
-export const userRelations = relations(user, ({ many }) => ({
-  sessions: many(session),
-  accounts: many(account),
+export const projectMember = pgTable(
+  "project_member",
+  {
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id),
+    role: projectRole("role").notNull(),
+    joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.projectId, table.userId] }),
+    index("project_member_user_id_idx").on(table.userId),
+  ],
+);
+
+export const decision = pgTable(
+  "decision",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    proposalContent: text("proposal_content").notNull(),
+    status: decisionStatus("status").default("proposed").notNull(),
+    proposerUserId: text("proposer_user_id")
+      .notNull()
+      .references(() => user.id),
+    reviewerUserId: text("reviewer_user_id").references(() => user.id),
+    reviewedAt: timestamp("reviewed_at"),
+    llmReasoningSummary: text("llm_reasoning_summary"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("decision_project_status_idx").on(table.projectId, table.status),
+    index("decision_proposer_user_id_idx").on(table.proposerUserId),
+    index("decision_reviewer_user_id_idx").on(table.reviewerUserId),
+  ],
+);
+
+export const projectRelations = relations(project, ({ one, many }) => ({
+  owner: one(user, {
+    fields: [project.ownerUserId],
+    references: [user.id],
+    relationName: "projectOwner",
+  }),
+  members: many(projectMember),
+  decisions: many(decision),
 }));
 
-export const sessionRelations = relations(session, ({ one }) => ({
+export const projectMemberRelations = relations(projectMember, ({ one }) => ({
+  project: one(project, {
+    fields: [projectMember.projectId],
+    references: [project.id],
+  }),
   user: one(user, {
-    fields: [session.userId],
+    fields: [projectMember.userId],
     references: [user.id],
+    relationName: "projectMemberUser",
   }),
 }));
 
-export const accountRelations = relations(account, ({ one }) => ({
-  user: one(user, {
-    fields: [account.userId],
-    references: [user.id],
+export const decisionRelations = relations(decision, ({ one }) => ({
+  project: one(project, {
+    fields: [decision.projectId],
+    references: [project.id],
   }),
+  proposer: one(user, {
+    fields: [decision.proposerUserId],
+    references: [user.id],
+    relationName: "decisionProposer",
+  }),
+  reviewer: one(user, {
+    fields: [decision.reviewerUserId],
+    references: [user.id],
+    relationName: "decisionReviewer",
+  }),
+}));
+
+export const userApplicationRelations = relations(user, ({ many }) => ({
+  ownedProjects: many(project, { relationName: "projectOwner" }),
+  projectMemberships: many(projectMember, {
+    relationName: "projectMemberUser",
+  }),
+  proposedDecisions: many(decision, { relationName: "decisionProposer" }),
+  reviewedDecisions: many(decision, { relationName: "decisionReviewer" }),
 }));
