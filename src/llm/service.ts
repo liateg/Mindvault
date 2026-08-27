@@ -2,6 +2,7 @@ import {
   model,
   type ModelUsage,
 } from "./llm-config.js";
+import { logLlmPromptIfEnabled } from "./prompt-logging.js";
 
 interface LlmMetrics {
   model: string;
@@ -52,6 +53,7 @@ export async function generateContent(prompt: string): Promise<string> {
   console.log("Generating content...");
 
   const startedAt = performance.now();
+  logLlmPromptIfEnabled(prompt);
   const result = await model.generate(prompt);
   const latencyMs = performance.now() - startedAt;
 
@@ -69,6 +71,7 @@ export async function* streamContent(
   const startedAt = performance.now();
   let usage: ModelUsage | undefined;
 
+  logLlmPromptIfEnabled(prompt);
   for await (const chunk of model.stream(prompt, signal)) {
     if (chunk.text) {
       yield { type: "token", text: chunk.text };

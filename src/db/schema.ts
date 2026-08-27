@@ -14,6 +14,7 @@ export const projectRole = pgEnum("project_role", [
   "admin",
   "maintain",
   "write",
+  "triage",
   "read",
 ]);
 
