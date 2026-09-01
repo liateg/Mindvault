@@ -8,11 +8,14 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:web": "npm --prefix web run dev",
     "build": "tsc",
+    "build:web": "npm --prefix web run build",
     "start": "node dist/server.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "test": "tsx --test test/ask-service.test.ts test/ask-sse.test.ts test/decision-context.test.ts test/prompt-logging.test.ts"
+    "test": "tsx --test test/ask-service.test.ts test/ask-sse.test.ts test/collaboration-backend.test.ts test/decision-context.test.ts test/prompt-logging.test.ts",
+    "test:web": "npm --prefix web test"
   },
   "repository": {
     "type": "git",

@@ -1,6 +1,7 @@
 import {
   injectApprovedDecisionContext,
   type ApprovedDecisionContext,
+  type InjectedDecisionContextResult,
 } from "../llm/decision-context.js";
 import {
   rejectUnknownKeys,
@@ -37,7 +38,7 @@ export async function prepareProjectAskPrompt(
   userId: string,
   prompt: string,
   dependencies: AskContextDependencies,
-): Promise<string> {
+): Promise<InjectedDecisionContextResult> {
   await dependencies.requireAccess(projectId, userId, "view");
   const decisions = await dependencies.listApprovedDecisions(projectId);
   return injectApprovedDecisionContext(prompt, decisions);

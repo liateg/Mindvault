@@ -1,11 +1,13 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   index,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema.js";
@@ -23,6 +25,17 @@ export const decisionStatus = pgEnum("decision_status", [
   "approved",
   "rejected",
   "superseded",
+]);
+
+export const invitationStatus = pgEnum("invitation_status", [
+  "pending",
+  "accepted",
+  "declined",
+  "revoked",
+]);
+
+export const notificationType = pgEnum("notification_type", [
+  "project_invitation",
 ]);
 
 export const project = pgTable(
@@ -90,6 +103,84 @@ export const decision = pgTable(
   ],
 );
 
+export const projectInvitation = pgTable(
+  "project_invitation",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    inviterUserId: text("inviter_user_id")
+      .notNull()
+      .references(() => user.id),
+    inviteeUserId: text("invitee_user_id")
+      .notNull()
+      .references(() => user.id),
+    requestedRole: projectRole("requested_role").notNull(),
+    status: invitationStatus("status").default("pending").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    respondedAt: timestamp("responded_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("project_invitation_project_status_idx").on(
+      table.projectId,
+      table.status,
+    ),
+    index("project_invitation_invitee_status_idx").on(
+      table.inviteeUserId,
+      table.status,
+    ),
+    uniqueIndex("project_invitation_pending_uidx")
+      .on(table.projectId, table.inviteeUserId)
+      .where(sql`${table.status} = 'pending'`),
+  ],
+);
+
+export type ProjectInvitationNotificationPayload = {
+  projectTitle: string;
+  inviterName: string;
+  requestedRole: (typeof projectRole.enumValues)[number];
+};
+
+export const notification = pgTable(
+  "notification",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: notificationType("type").notNull(),
+    invitationId: uuid("invitation_id").references(
+      () => projectInvitation.id,
+      { onDelete: "cascade" },
+    ),
+    projectId: uuid("project_id").references(() => project.id, {
+      onDelete: "cascade",
+    }),
+    payload: jsonb("payload")
+      .$type<ProjectInvitationNotificationPayload>()
+      .notNull(),
+    readAt: timestamp("read_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("notification_recipient_created_idx").on(
+      table.recipientUserId,
+      table.createdAt,
+    ),
+    index("notification_recipient_read_idx").on(
+      table.recipientUserId,
+      table.readAt,
+    ),
+    uniqueIndex("notification_invitation_uidx").on(table.invitationId),
+  ],
+);
+
 export const projectRelations = relations(project, ({ one, many }) => ({
   owner: one(user, {
     fields: [project.ownerUserId],
@@ -98,6 +189,8 @@ export const projectRelations = relations(project, ({ one, many }) => ({
   }),
   members: many(projectMember),
   decisions: many(decision),
+  invitations: many(projectInvitation),
+  notifications: many(notification),
 }));
 
 export const projectMemberRelations = relations(projectMember, ({ one }) => ({
@@ -129,6 +222,43 @@ export const decisionRelations = relations(decision, ({ one }) => ({
   }),
 }));
 
+export const projectInvitationRelations = relations(
+  projectInvitation,
+  ({ one, many }) => ({
+    project: one(project, {
+      fields: [projectInvitation.projectId],
+      references: [project.id],
+    }),
+    inviter: one(user, {
+      fields: [projectInvitation.inviterUserId],
+      references: [user.id],
+      relationName: "invitationInviter",
+    }),
+    invitee: one(user, {
+      fields: [projectInvitation.inviteeUserId],
+      references: [user.id],
+      relationName: "invitationInvitee",
+    }),
+    notifications: many(notification),
+  }),
+);
+
+export const notificationRelations = relations(notification, ({ one }) => ({
+  recipient: one(user, {
+    fields: [notification.recipientUserId],
+    references: [user.id],
+    relationName: "notificationRecipient",
+  }),
+  invitation: one(projectInvitation, {
+    fields: [notification.invitationId],
+    references: [projectInvitation.id],
+  }),
+  project: one(project, {
+    fields: [notification.projectId],
+    references: [project.id],
+  }),
+}));
+
 export const userApplicationRelations = relations(user, ({ many }) => ({
   ownedProjects: many(project, { relationName: "projectOwner" }),
   projectMemberships: many(projectMember, {
@@ -136,4 +266,13 @@ export const userApplicationRelations = relations(user, ({ many }) => ({
   }),
   proposedDecisions: many(decision, { relationName: "decisionProposer" }),
   reviewedDecisions: many(decision, { relationName: "decisionReviewer" }),
+  sentInvitations: many(projectInvitation, {
+    relationName: "invitationInviter",
+  }),
+  receivedInvitations: many(projectInvitation, {
+    relationName: "invitationInvitee",
+  }),
+  notifications: many(notification, {
+    relationName: "notificationRecipient",
+  }),
 }));

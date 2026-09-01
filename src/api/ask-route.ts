@@ -68,7 +68,7 @@ router.post(
 
     try {
       await writeAskStream(
-        streamContent(contextualPrompt, abortController.signal),
+        streamContent(contextualPrompt.text, abortController.signal),
         (chunk) => response.write(chunk),
         abortController.signal,
       );

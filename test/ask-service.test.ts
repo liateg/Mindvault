@@ -45,7 +45,15 @@ test("authorizes view access before loading exact-project decisions", async () =
     `access:${projectId}:${userId}:view`,
     `decisions:${projectId}`,
   ]);
-  assert.match(result, /Scoped decision/);
+  assert.match(result.text, /Scoped decision/);
+  assert.match(result.text, /THIS project only/);
+  assert.match(result.text, /output ONLY this refusal and nothing else/);
+  assert.match(
+    result.text,
+    /My job is this team's decisions and recorded context\. I'm bound to that\./,
+  );
+  assert.equal(result.truncatedChars, 0);
+  assert.equal(result.estimatedTruncatedTokens, 0);
 });
 
 test("does not query decisions when project authorization fails", async () => {
@@ -67,7 +75,7 @@ test("does not query decisions when project authorization fails", async () => {
   assert.equal(queried, false);
 });
 
-test("uses no injected context when the exact project has no approvals", async () => {
+test("still injects project-scope instructions when the exact project has no approvals", async () => {
   const result = await prepareProjectAskPrompt(
     projectId,
     userId,
@@ -81,5 +89,10 @@ test("uses no injected context when the exact project has no approvals", async (
     },
   );
 
-  assert.equal(result, "plain question");
+  assert.equal(result.truncatedChars, 0);
+  assert.equal(result.estimatedTruncatedTokens, 0);
+  assert.match(result.text, /THIS project only/);
+  assert.match(result.text, /No approved decisions are recorded/);
+  assert.match(result.text, /output ONLY this refusal and nothing else/);
+  assert.match(result.text, /User request:\nplain question$/);
 });

@@ -67,6 +67,7 @@ export const model: LanguageModel = {
     const completion = await groq.chat.completions.create({
       model: modelName,
       messages: [{ role: "user", content: prompt }],
+      temperature: 0,
     });
 
     return {
@@ -82,6 +83,7 @@ export const model: LanguageModel = {
       model: modelName,
       messages: [{ role: "user" as const, content: prompt }],
       stream: true as const,
+      temperature: 0,
     };
 
     const groqStream = signal
