@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -37,6 +38,8 @@ export const invitationStatus = pgEnum("invitation_status", [
 export const notificationType = pgEnum("notification_type", [
   "project_invitation",
 ]);
+
+export const chunkKind = pgEnum("chunk_kind", ["full", "section"]);
 
 export const project = pgTable(
   "project",
@@ -100,6 +103,33 @@ export const decision = pgTable(
     index("decision_project_status_idx").on(table.projectId, table.status),
     index("decision_proposer_user_id_idx").on(table.proposerUserId),
     index("decision_reviewer_user_id_idx").on(table.reviewerUserId),
+  ],
+);
+
+export const decisionChunk = pgTable(
+  "decision_chunk",
+  {
+    id: text("id").primaryKey(),
+    decisionId: uuid("decision_id")
+      .notNull()
+      .references(() => decision.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => project.id, { onDelete: "cascade" }),
+    chunkKind: chunkKind("chunk_kind").notNull(),
+    sectionIndex: integer("section_index"),
+    sectionCount: integer("section_count"),
+    proposalSlice: text("proposal_slice").notNull(),
+    sourceHash: text("source_hash").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("decision_chunk_decision_id_idx").on(table.decisionId),
+    index("decision_chunk_project_id_idx").on(table.projectId),
   ],
 );
 
@@ -189,6 +219,7 @@ export const projectRelations = relations(project, ({ one, many }) => ({
   }),
   members: many(projectMember),
   decisions: many(decision),
+  chunks: many(decisionChunk),
   invitations: many(projectInvitation),
   notifications: many(notification),
 }));
@@ -205,7 +236,7 @@ export const projectMemberRelations = relations(projectMember, ({ one }) => ({
   }),
 }));
 
-export const decisionRelations = relations(decision, ({ one }) => ({
+export const decisionRelations = relations(decision, ({ one, many }) => ({
   project: one(project, {
     fields: [decision.projectId],
     references: [project.id],
@@ -219,6 +250,18 @@ export const decisionRelations = relations(decision, ({ one }) => ({
     fields: [decision.reviewerUserId],
     references: [user.id],
     relationName: "decisionReviewer",
+  }),
+  chunks: many(decisionChunk),
+}));
+
+export const decisionChunkRelations = relations(decisionChunk, ({ one }) => ({
+  decision: one(decision, {
+    fields: [decisionChunk.decisionId],
+    references: [decision.id],
+  }),
+  project: one(project, {
+    fields: [decisionChunk.projectId],
+    references: [project.id],
   }),
 }));
 

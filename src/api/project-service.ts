@@ -1,8 +1,12 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user } from "../db/auth-schema.js";
-import { decision, project, projectMember } from "../db/schema.js";
-import { MAX_CONTEXT_DECISIONS } from "../llm/decision-context.js";
+import { decision, decisionChunk, project, projectMember } from "../db/schema.js";
+import {
+  MAX_CONTEXT_DECISIONS,
+  type ApprovedDecisionContext,
+  type PersistedDecisionChunk,
+} from "../llm/decision-context.js";
 import { can, type ProjectRole } from "./authorization.js";
 import { ApiError } from "./validation.js";
 
@@ -208,9 +212,12 @@ export async function listDecisions(projectId: string) {
     .orderBy(desc(decision.updatedAt));
 }
 
-export async function listApprovedDecisionsForContext(projectId: string) {
-  return db
+export async function listApprovedDecisionsForContext(
+  projectId: string,
+): Promise<ApprovedDecisionContext[]> {
+  const decisions = await db
     .select({
+      id: decision.id,
       title: decision.title,
       proposalContent: decision.proposalContent,
       llmReasoningSummary: decision.llmReasoningSummary,
@@ -224,6 +231,59 @@ export async function listApprovedDecisionsForContext(projectId: string) {
     )
     .orderBy(desc(decision.updatedAt))
     .limit(MAX_CONTEXT_DECISIONS);
+
+  if (decisions.length === 0) {
+    return [];
+  }
+
+  const rows = await db
+    .select({
+      id: decisionChunk.id,
+      decisionId: decisionChunk.decisionId,
+      chunkKind: decisionChunk.chunkKind,
+      sectionIndex: decisionChunk.sectionIndex,
+      sectionCount: decisionChunk.sectionCount,
+      proposalSlice: decisionChunk.proposalSlice,
+    })
+    .from(decisionChunk)
+    .where(
+      inArray(
+        decisionChunk.decisionId,
+        decisions.map((item) => item.id),
+      ),
+    );
+
+  const chunksByDecision = new Map<string, PersistedDecisionChunk[]>();
+  for (const row of rows) {
+    const persisted: PersistedDecisionChunk = {
+      chunkId: row.id,
+      chunkKind: row.chunkKind,
+      proposalSlice: row.proposalSlice,
+    };
+    if (row.sectionIndex !== null) {
+      persisted.sectionIndex = row.sectionIndex;
+    }
+    if (row.sectionCount !== null) {
+      persisted.sectionCount = row.sectionCount;
+    }
+    const list = chunksByDecision.get(row.decisionId) ?? [];
+    list.push(persisted);
+    chunksByDecision.set(row.decisionId, list);
+  }
+
+  for (const [, list] of chunksByDecision) {
+    list.sort(
+      (left, right) => (left.sectionIndex ?? 0) - (right.sectionIndex ?? 0),
+    );
+  }
+
+  return decisions.map((item) => {
+    const persistedChunks = chunksByDecision.get(item.id);
+    if (persistedChunks === undefined || persistedChunks.length === 0) {
+      return item;
+    }
+    return { ...item, persistedChunks };
+  });
 }
 
 export async function getDecision(projectId: string, decisionId: string) {
